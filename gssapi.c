@@ -90,6 +90,62 @@ static emacs_value make_array(emacs_env *env, void *ptr, size_t len)
     return array;
 }
 
+static emacs_value lisp_push(emacs_env *env, emacs_value list, emacs_value v)
+{
+   emacs_value sym_cons = env->intern(env, "cons");
+   emacs_value args[] = { v, list };
+   return env->funcall(env, sym_cons, 2, args);
+}
+
+static emacs_value extract_error_message(emacs_env *env, OM_uint32 major_status, int status_code_type, const gss_OID mech)
+{
+    emacs_value Qnil = env->intern(env, "nil");
+    emacs_value Qreverse = env->intern(env, "reverse");
+    emacs_value messages = Qnil;
+
+    OM_uint32 message_context = 0;
+    do {
+        gss_buffer_desc status_output;
+        OM_uint32 minor;
+        OM_uint32 result = gss_display_status(&minor, major_status, status_code_type, mech, &message_context, &status_output);
+        if(GSS_ERROR(result)) {
+            abort();
+        }
+
+        messages = lisp_push(env, messages, env->make_string(env, status_output.value, status_output.length));
+        result = gss_release_buffer(&minor, &status_output);
+        if(GSS_ERROR(result)) {
+            abort();
+        }
+    } while(message_context != 0);
+
+    messages = env->funcall(env, Qreverse, 1, &messages);
+    return messages;
+}
+
+static int check_error(emacs_env *env, OM_uint32 major_status, OM_uint32 minor_status)
+{
+    if(!GSS_ERROR(major_status)) {
+        return 0;
+    }
+
+    emacs_value major_messages = extract_error_message(env, major_status, GSS_C_GSS_CODE, GSS_C_NO_OID);
+    emacs_value minor_messages;
+    if(GSS_ERROR(minor_status)) {
+        minor_messages = extract_error_message(env, minor_status, GSS_C_MECH_CODE, (gss_OID)gss_mech_krb5);
+    }
+    else {
+        minor_messages = env->intern(env, "nil");
+    }
+
+    emacs_value Qlist = env->intern(env, "list");
+    emacs_value list_args[] = { major_messages, minor_messages };
+    emacs_value error_list = env->funcall(env, Qlist, 2, list_args);
+    env->non_local_exit_throw(env, env->intern(env, "gss-error"), error_list);
+
+    return 1;
+}
+
 static void release_name(void *name_ptr)
 {
     gss_name_t name = name_ptr;
@@ -155,8 +211,7 @@ static emacs_value Fgssapi_internal_import_name(emacs_env *env, ptrdiff_t nargs,
     name_buf.value = buf;
     name_buf.length = strlen(buf);
     OM_uint32 result = gss_import_name(&minor, &name_buf, gss_type, &output_name);
-    if(GSS_ERROR(result)) {
-        throw_error(env, "gss error");
+    if(check_error(env, result, minor)) {
         return env->intern(env, "nil");
     }
 
@@ -180,20 +235,20 @@ static emacs_value Fgssapi_internal_name_to_string(emacs_env *env, ptrdiff_t nar
 
     OM_uint32 minor;
     OM_uint32 result = gss_display_name(&minor, env->get_user_ptr(env, name), &buffer, &type);
-    if(GSS_ERROR(result)) {
-        throw_error(env, "Error reading name");
+    if(check_error(env, result, minor)) {
         return env->intern(env, "nil");
     }
 
     emacs_value ret = env->make_string(env, buffer.value, buffer.length);
     result = gss_release_buffer(&minor, &buffer);
-    if(GSS_ERROR(result)) {
-        throw_error(env, "Error releasing buffer");
-        return env->intern(env, "nil");
-    }
+    int release_buffer_error = check_error(env, result, minor);
     result = gss_release_oid(&minor, &type);
-    if(GSS_ERROR(result)) {
-        throw_error(env, "Error releasing type");
+    if(!release_buffer_error) {
+        if(check_error(env, result, minor)) {
+            return env->intern(env, "nil");
+        }
+    }
+    else {
         return env->intern(env, "nil");
     }
 
@@ -238,13 +293,6 @@ static OM_uint32 make_flags(emacs_env *env, emacs_value flags)
         curr = xcdr(env, curr);
     }
     return result;
-}
-
-static emacs_value lisp_push(emacs_env *env, emacs_value list, emacs_value v)
-{
-   emacs_value sym_cons = env->intern(env, "cons");
-   emacs_value args[] = { v, list };
-   return env->funcall(env, sym_cons, 2, args);
 }
 
 static emacs_value parse_flags(emacs_env *env, OM_uint32 flags)
@@ -341,21 +389,20 @@ static emacs_value Fgssapi_internal_init_sec_context(emacs_env *env, ptrdiff_t n
                                             GSS_C_NO_OID, make_flags(env, flags),
                                             env->extract_integer(env, time_req), GSS_C_NO_CHANNEL_BINDINGS,
                                             &input_token, &actual_mech_type, &output_token, &ret_flags, &time_rec);
-    if(GSS_ERROR(result)) {
-        throw_error(env, "Error from init_sec_context");
+    if(check_error(env, result, minor)) {
         return env->intern(env, "nil");
     }
 
-    emacs_value sym_nil = env->intern(env, "nil");
-    emacs_value sym_t = env->intern(env, "t");
-    emacs_value result_list[] = { result & GSS_S_CONTINUE_NEEDED ? sym_t : sym_nil,
-                                  context_handle == NULL ? sym_nil : env->make_user_ptr(env, free_context, context_handle),
-                                  output_token.length == 0 ? sym_nil : make_array(env, output_token.value, output_token.length),
+    emacs_value Qnil = env->intern(env, "nil");
+    emacs_value Qt = env->intern(env, "t");
+    emacs_value result_list[] = { result & GSS_S_CONTINUE_NEEDED ? Qt : Qnil,
+                                  context_handle == NULL ? Qnil : env->make_user_ptr(env, free_context, context_handle),
+                                  output_token.length == 0 ? Qnil : make_array(env, output_token.value, output_token.length),
                                   parse_flags(env, ret_flags) };
 
     result = gss_release_buffer(&minor, &output_token);
-    if(GSS_ERROR(result)) {
-        abort();
+    if(check_error(env, result, minor)) {
+        return Qnil;
     }
 
     return env->funcall(env, env->intern(env, "list"), 4, result_list);
@@ -384,8 +431,7 @@ static emacs_value Fgssapi_internal_accept_sec_context(emacs_env *env, ptrdiff_t
     OM_uint32 result = gss_accept_sec_context(&minor, &context_handle, NULL, &input_token, GSS_C_NO_CHANNEL_BINDINGS,
                                               &src_name, NULL, &output_token, &ret_flags, &time_rec, &output_cred_handle);
     free_input_token(&input_token);
-    if(GSS_ERROR(result)) {
-        throw_error(env, "Error when calling gss_accept_sec_context");
+    if(check_error(env, result, minor)) {
         return env->intern(env, "nil");
     }
 
@@ -400,8 +446,8 @@ static emacs_value Fgssapi_internal_accept_sec_context(emacs_env *env, ptrdiff_t
                                   sym_nil };
 
     result = gss_release_buffer(&minor, &output_token);
-    if(GSS_ERROR(result)) {
-        abort();
+    if(check_error(env, result, minor)) {
+        return env->intern(env, "nil");
     }
 
     return env->funcall(env, env->intern(env, "list"), 7, result_list);
@@ -459,16 +505,14 @@ static emacs_value Fwrap(emacs_env *env, ptrdiff_t nargs, emacs_value *args, voi
                                 &conf_state,
                                 &output_desc);
     free_input_token(&buffer_desc);
-    if(GSS_ERROR(result)) {
-        throw_error(env, "Error calling gss_wrap");
+    if(check_error(env, result, minor)) {
         return env->intern(env, "nil");
     }
 
     emacs_value ret = make_array(env, output_desc.value, output_desc.length);
 
     result = gss_release_buffer(&minor, &output_desc);
-    if(GSS_ERROR(result)) {
-        throw_error(env, "Error releasing buffer");
+    if(check_error(env, result, minor)) {
         return env->intern(env, "nil");
     }
 
@@ -501,16 +545,14 @@ static emacs_value Funwrap(emacs_env *env, ptrdiff_t nargs, emacs_value *args, v
                                   &conf_state,
                                   &qop_state);
     free_input_token(&buffer_desc);
-    if(GSS_ERROR(result)) {
-        throw_error(env, "Error calling gss_wrap");
+    if(check_error(env, result, minor)) {
         return env->intern(env, "nil");
     }
 
     emacs_value ret = make_array(env, output_desc.value, output_desc.length);
 
     result = gss_release_buffer(&minor, &output_desc);
-    if(GSS_ERROR(result)) {
-        throw_error(env, "Error releasing buffer");
+    if(check_error(env, result, minor)) {
         return env->intern(env, "nil");
     }
 
