@@ -375,7 +375,7 @@ static gss_buffer_desc make_input_token(emacs_env *env, emacs_value content)
     gss_buffer_desc input_token;
     if(env->is_not_nil(env, content)) {
         size_t input_token_length = env->vec_size(env, content);
-        char *input_token_buf = malloc(input_token_length);
+        unsigned char *input_token_buf = malloc(input_token_length);
         for(size_t i = 0 ; i < input_token_length ; i++) {
             input_token_buf[i] = env->extract_integer(env, env->vec_get(env, content, i));
         }
@@ -383,7 +383,7 @@ static gss_buffer_desc make_input_token(emacs_env *env, emacs_value content)
         input_token.length = input_token_length;
     }
     else {
-        input_token.value = "";
+        input_token.value = NULL;
         input_token.length = 0;
     }
 
@@ -392,7 +392,9 @@ static gss_buffer_desc make_input_token(emacs_env *env, emacs_value content)
 
 static void free_input_token(gss_buffer_desc *token)
 {
-    free(token->value);
+    if(token->value != NULL) {
+        free(token->value);
+    }
 }
 
 static emacs_value Fgssapi_internal_init_sec_context(emacs_env *env, ptrdiff_t nargs, emacs_value *args, void *data)
@@ -419,6 +421,7 @@ static emacs_value Fgssapi_internal_init_sec_context(emacs_env *env, ptrdiff_t n
                                             GSS_C_NO_OID, make_flags(env, flags),
                                             env->extract_integer(env, time_req), GSS_C_NO_CHANNEL_BINDINGS,
                                             &input_token, &actual_mech_type, &output_token, &ret_flags, &time_rec);
+    free_input_token(&input_token);
     if(GSS_ERROR(result)) {
         message(env, "Call to INIT failed");
         if(env->is_not_nil(env, context)) {
@@ -538,13 +541,14 @@ static emacs_value Fwrap(emacs_env *env, ptrdiff_t nargs, emacs_value *args, voi
     emacs_value buffer = args[1];
     emacs_value conf = args[2];
 
+    ContextWrapper *context_wrapper = env->get_user_ptr(env, context);
     gss_buffer_desc buffer_desc = make_input_token(env, buffer);
     int conf_state;
     gss_buffer_desc output_desc;
 
     OM_uint32 minor;
     OM_uint32 result = gss_wrap(&minor,
-                                env->get_user_ptr(env, context),
+                                context_wrapper->context,
                                 env->is_not_nil(env, conf) ? 1 : 0,
                                 GSS_C_QOP_DEFAULT,
                                 &buffer_desc,
@@ -575,6 +579,7 @@ static emacs_value Funwrap(emacs_env *env, ptrdiff_t nargs, emacs_value *args, v
     emacs_value context = args[0];
     emacs_value buffer = args[1];
 
+    ContextWrapper *context_wrapper = env->get_user_ptr(env, context);
     gss_buffer_desc buffer_desc = make_input_token(env, buffer);
     int conf_state;
     gss_qop_t qop_state;
@@ -582,7 +587,7 @@ static emacs_value Funwrap(emacs_env *env, ptrdiff_t nargs, emacs_value *args, v
 
     OM_uint32 minor;
     OM_uint32 result = gss_unwrap(&minor,
-                                  env->get_user_ptr(env, context),
+                                  context_wrapper->context,
                                   &buffer_desc,
                                   &output_desc,
                                   &conf_state,
