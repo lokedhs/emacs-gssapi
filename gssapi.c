@@ -9,7 +9,6 @@
 
 int plugin_is_GPL_compatible;
 
-#if 0
 static void message(emacs_env *env, char *fmt, ...)
 {
     int size = 0;
@@ -42,7 +41,6 @@ static void message(emacs_env *env, char *fmt, ...)
 
     free(p);
 }
-#endif
 
 static void bind_function(emacs_env *env, char *name, emacs_value Sfun)
 {
@@ -57,7 +55,7 @@ static void provide_module(emacs_env *env, const char *feature)
   emacs_value Qfeat = env->intern (env, feature);
   emacs_value Qprovide = env->intern (env, "provide");
   emacs_value args[] = { Qfeat };
-  env->funcall (env, Qprovide, 1, args);
+  env->funcall(env, Qprovide, 1, args);
 }
 
 static void throw_error(emacs_env *env, char *message) {
@@ -90,14 +88,14 @@ static emacs_value make_array(emacs_env *env, void *ptr, size_t len)
     return array;
 }
 
-static emacs_value lisp_push(emacs_env *env, emacs_value list, emacs_value v)
+static emacs_value xcons(emacs_env *env, emacs_value x, emacs_value y)
 {
    emacs_value Qcons = env->intern(env, "cons");
-   emacs_value args[] = { v, list };
+   emacs_value args[] = { x, y };
    return env->funcall(env, Qcons, 2, args);
 }
 
-static emacs_value extract_error_message(emacs_env *env, OM_uint32 major_status, int status_code_type, const gss_OID mech)
+static emacs_value extract_error_message(emacs_env *env, OM_uint32 status, int status_code_type, const gss_OID mech)
 {
     emacs_value Qnil = env->intern(env, "nil");
     emacs_value Qreverse = env->intern(env, "reverse");
@@ -107,12 +105,12 @@ static emacs_value extract_error_message(emacs_env *env, OM_uint32 major_status,
     do {
         gss_buffer_desc status_output;
         OM_uint32 minor;
-        OM_uint32 result = gss_display_status(&minor, major_status, status_code_type, mech, &message_context, &status_output);
+        OM_uint32 result = gss_display_status(&minor, status, status_code_type, mech, &message_context, &status_output);
         if(GSS_ERROR(result)) {
             abort();
         }
 
-        messages = lisp_push(env, messages, env->make_string(env, status_output.value, status_output.length));
+        messages = xcons(env, env->make_string(env, status_output.value, status_output.length), messages);
         result = gss_release_buffer(&minor, &status_output);
         if(GSS_ERROR(result)) {
             abort();
@@ -146,25 +144,64 @@ static int check_error(emacs_env *env, OM_uint32 major_status, OM_uint32 minor_s
     return 1;
 }
 
+char *crash_status = NULL;
+char *crash_status_minor = NULL;
 static void release_name(void *name_ptr)
 {
     gss_name_t name = name_ptr;
     OM_uint32 minor;
     OM_uint32 result = gss_release_name(&minor, &name);
     if(GSS_ERROR(result)) {
+        gss_buffer_desc status_output;
+        OM_uint32 err_minor;
+        OM_uint32 msgctx;
+        OM_uint32 err_result = gss_display_status(&err_minor, result, GSS_C_GSS_CODE, GSS_C_NO_OID, &msgctx, &status_output);
+        if(!GSS_ERROR(err_result)) {
+            crash_status = malloc(status_output.length + 1);
+            strncpy(crash_status, status_output.value, status_output.length);
+            crash_status[status_output.length] = 0;
+        }
         abort();
     }
 }
 
+typedef struct {
+    gss_ctx_id_t context;
+    int is_released;
+} ContextWrapper;
+
 static void free_context(void *context_ptr)
 {
-    gss_ctx_id_t *context = context_ptr;
-    gss_buffer_desc output;
-    OM_uint32 minor;
-    OM_uint32 result = gss_delete_sec_context(&minor, context, &output);
-    if(GSS_ERROR(result)) {
-        abort();
+    ContextWrapper *context_wrapper = context_ptr;
+
+    if(!context_wrapper->is_released) {
+        gss_buffer_desc output;
+        OM_uint32 minor;
+        gss_ctx_id_t context_id = context_wrapper->context;
+        OM_uint32 result = gss_delete_sec_context(&minor, &context_id, &output);
+        if(GSS_ERROR(result)) {
+            gss_buffer_desc status_output;
+            OM_uint32 err_minor;
+            OM_uint32 msgctx;
+            OM_uint32 err_result = gss_display_status(&err_minor, result, GSS_C_GSS_CODE, GSS_C_NO_OID, &msgctx, &status_output);
+            if(!GSS_ERROR(err_result)) {
+                crash_status = malloc(status_output.length + 1);
+                strncpy(crash_status, status_output.value, status_output.length);
+                crash_status[status_output.length] = 0;
+
+                msgctx = 0;
+                err_result = gss_display_status(&err_minor, minor, GSS_C_MECH_CODE, (gss_OID)gss_mech_krb5, &msgctx, &status_output);
+                if(!GSS_ERROR(err_result)) {
+                    crash_status_minor = malloc(status_output.length + 1);
+                    strncpy(crash_status_minor, status_output.value, status_output.length);
+                    crash_status_minor[status_output.length] = 0;                
+                }
+            }
+            abort();
+        }
     }
+
+    free(context_wrapper);
 }
 
 static emacs_value Fgssapi_internal_import_name(emacs_env *env, ptrdiff_t nargs, emacs_value *args, void *data)
@@ -293,31 +330,31 @@ static emacs_value parse_flags(emacs_env *env, OM_uint32 flags)
 {
     emacs_value res = env->intern(env, "nil");
     if(flags & GSS_C_DELEG_FLAG) {
-        res = lisp_push(env, res, env->intern(env, ":deleg"));
+        res = xcons(env, env->intern(env, ":deleg"), res);
     }
     if(flags & GSS_C_MUTUAL_FLAG) {
-        res = lisp_push(env, res, env->intern(env, ":mutual"));
+        res = xcons(env, env->intern(env, ":mutual"), res);
     }
     if(flags & GSS_C_REPLAY_FLAG) {
-        res = lisp_push(env, res, env->intern(env, ":replay"));
+        res = xcons(env, env->intern(env, ":replay"), res);
     }
     if(flags & GSS_C_SEQUENCE_FLAG) {
-        res = lisp_push(env, res, env->intern(env, ":sequence"));
+        res = xcons(env, env->intern(env, ":sequence"), res);
     }
     if(flags & GSS_C_CONF_FLAG) {
-        res = lisp_push(env, res, env->intern(env, ":conf"));
+        res = xcons(env, env->intern(env, ":conf"), res);
     }
     if(flags & GSS_C_INTEG_FLAG) {
-        res = lisp_push(env, res, env->intern(env, ":integ"));
+        res = xcons(env, env->intern(env, ":integ"), res);
     }
     if(flags & GSS_C_ANON_FLAG) {
-        res = lisp_push(env, res, env->intern(env, ":anon"));
+        res = xcons(env, env->intern(env, ":anon"), res);
     }
     if(flags & GSS_C_PROT_READY_FLAG) {
-        res = lisp_push(env, res, env->intern(env, ":prot-ready"));
+        res = xcons(env, env->intern(env, ":prot-ready"), res);
     }
     if(flags & GSS_C_TRANS_FLAG) {
-        res = lisp_push(env, res, env->intern(env, ":trans"));
+        res = xcons(env, env->intern(env, ":trans"), res);
     }
     return res;
 }
@@ -325,7 +362,8 @@ static emacs_value parse_flags(emacs_env *env, OM_uint32 flags)
 static gss_ctx_id_t make_context_ref(emacs_env *env, emacs_value context)
 {
     if(env->is_not_nil(env, context)) {
-        return env->get_user_ptr(env, context);
+        ContextWrapper *w = env->get_user_ptr(env, context);
+        return w->context;
     }
     else {
         return GSS_C_NO_CONTEXT;
@@ -375,19 +413,45 @@ static emacs_value Fgssapi_internal_init_sec_context(emacs_env *env, ptrdiff_t n
     OM_uint32 ret_flags;
     OM_uint32 time_rec;
 
+    message(env, "gss_init_sec_context. context=%p", context_handle);
     OM_uint32 minor;
     OM_uint32 result = gss_init_sec_context(&minor, NULL, &context_handle, env->get_user_ptr(env, target),
                                             GSS_C_NO_OID, make_flags(env, flags),
                                             env->extract_integer(env, time_req), GSS_C_NO_CHANNEL_BINDINGS,
                                             &input_token, &actual_mech_type, &output_token, &ret_flags, &time_rec);
-    if(check_error(env, result, minor)) {
+    if(GSS_ERROR(result)) {
+        message(env, "Call to INIT failed");
+        if(env->is_not_nil(env, context)) {
+            ContextWrapper *context_wrapper = env->get_user_ptr(env, context);
+            message(env, "released = %d\n", context_wrapper->is_released);
+            context_wrapper->is_released = 1;
+        }
+        check_error(env, result, minor);
         return env->intern(env, "nil");
     }
+    message(env, "call to INIT successful, context=%p", context_handle);
 
     emacs_value Qnil = env->intern(env, "nil");
     emacs_value Qt = env->intern(env, "t");
+    emacs_value context_ret;
+    if(context_handle == NULL) {
+        context_ret = Qnil;
+        message(env, "returning nil context");
+    }
+    else if(env->is_not_nil(env, context)) {
+        context_ret = context;
+        message(env, "Returning original context");
+    }
+    else {
+        ContextWrapper *context_wrapper = malloc(sizeof(ContextWrapper));
+        context_wrapper->context = context_handle;
+        context_wrapper->is_released = 0;
+        message(env, "returning newly created context wrapper = %p", context_wrapper);
+        context_ret = env->make_user_ptr(env, free_context, context_wrapper);
+    }
+
     emacs_value result_list[] = { result & GSS_S_CONTINUE_NEEDED ? Qt : Qnil,
-                                  context_handle == NULL ? Qnil : env->make_user_ptr(env, free_context, context_handle),
+                                  context_ret,
                                   output_token.length == 0 ? Qnil : make_array(env, output_token.value, output_token.length),
                                   parse_flags(env, ret_flags) };
 
@@ -507,7 +571,7 @@ static emacs_value Funwrap(emacs_env *env, ptrdiff_t nargs, emacs_value *args, v
 {
     (void)data;
     (void)nargs;
-
+    
     emacs_value context = args[0];
     emacs_value buffer = args[1];
 
