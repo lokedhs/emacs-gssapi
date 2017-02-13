@@ -92,9 +92,9 @@ static emacs_value make_array(emacs_env *env, void *ptr, size_t len)
 
 static emacs_value lisp_push(emacs_env *env, emacs_value list, emacs_value v)
 {
-   emacs_value sym_cons = env->intern(env, "cons");
+   emacs_value Qcons = env->intern(env, "cons");
    emacs_value args[] = { v, list };
-   return env->funcall(env, sym_cons, 2, args);
+   return env->funcall(env, Qcons, 2, args);
 }
 
 static emacs_value extract_error_message(emacs_env *env, OM_uint32 major_status, int status_code_type, const gss_OID mech)
@@ -257,37 +257,37 @@ static emacs_value Fgssapi_internal_name_to_string(emacs_env *env, ptrdiff_t nar
 
 static OM_uint32 make_flags(emacs_env *env, emacs_value flags)
 {
-    emacs_value sym_deleg = env->intern(env, ":deleg");
-    emacs_value sym_mutual = env->intern(env, ":mutual");
-    emacs_value sym_replay = env->intern(env, ":replay");
-    emacs_value sym_sequence = env->intern(env, ":sequence");
-    emacs_value sym_conf = env->intern(env, ":conf");
-    emacs_value sym_integ = env->intern(env, ":integ");
-    emacs_value sym_anon = env->intern(env, ":anon");
+    emacs_value Qdeleg = env->intern(env, ":deleg");
+    emacs_value Qmutual = env->intern(env, ":mutual");
+    emacs_value Qreplay = env->intern(env, ":replay");
+    emacs_value Qsequence = env->intern(env, ":sequence");
+    emacs_value Qconf = env->intern(env, ":conf");
+    emacs_value Qinteg = env->intern(env, ":integ");
+    emacs_value Qanon = env->intern(env, ":anon");
     
     OM_uint32 result = 0;
     emacs_value curr = flags;
     while(env->is_not_nil(env, curr)) {
         emacs_value v = xcar(env, curr);
-        if(env->eq(env, v, sym_deleg)) {
+        if(env->eq(env, v, Qdeleg)) {
             result |= GSS_C_DELEG_FLAG;
         }
-        else if(env->eq(env, v, sym_mutual)) {
+        else if(env->eq(env, v, Qmutual)) {
             result |= GSS_C_MUTUAL_FLAG;
         }
-        else if(env->eq(env, v, sym_replay)) {
+        else if(env->eq(env, v, Qreplay)) {
             result |= GSS_C_REPLAY_FLAG;
         }
-        else if(env->eq(env, v, sym_sequence)) {
+        else if(env->eq(env, v, Qsequence)) {
             result |= GSS_C_SEQUENCE_FLAG;
         }
-        else if(env->eq(env, v, sym_conf)) {
+        else if(env->eq(env, v, Qconf)) {
             result |= GSS_C_CONF_FLAG;
         }
-        else if(env->eq(env, v, sym_integ)) {
+        else if(env->eq(env, v, Qinteg)) {
             result |= GSS_C_INTEG_FLAG;
         }
-        else if(env->eq(env, v, sym_anon)) {
+        else if(env->eq(env, v, Qanon)) {
             result |= GSS_C_ANON_FLAG;
         }
         curr = xcdr(env, curr);
@@ -435,15 +435,15 @@ static emacs_value Fgssapi_internal_accept_sec_context(emacs_env *env, ptrdiff_t
         return env->intern(env, "nil");
     }
 
-    emacs_value sym_nil = env->intern(env, "nil");
-    emacs_value sym_t = env->intern(env, "t");
-    emacs_value result_list[] = { result & GSS_S_CONTINUE_NEEDED ? sym_t : sym_nil,
-                                  context_handle == NULL ? sym_nil : env->make_user_ptr(env, free_context, context_handle),
+    emacs_value Qnil = env->intern(env, "nil");
+    emacs_value Qt = env->intern(env, "t");
+    emacs_value result_list[] = { result & GSS_S_CONTINUE_NEEDED ? Qt : Qnil,
+                                  context_handle == NULL ? Qnil : env->make_user_ptr(env, free_context, context_handle),
                                   env->make_user_ptr(env, release_name, src_name),
-                                  output_token.length == 0 ? sym_nil : make_array(env, output_token.value, output_token.length),
+                                  output_token.length == 0 ? Qnil : make_array(env, output_token.value, output_token.length),
                                   parse_flags(env, ret_flags),
                                   env->make_integer(env, time_rec),
-                                  sym_nil };
+                                  Qnil };
 
     result = gss_release_buffer(&minor, &output_token);
     if(check_error(env, result, minor)) {
