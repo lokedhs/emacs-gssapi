@@ -36,7 +36,7 @@
   (check-type name gss-name)
   (gss--internal-name-to-string (gss-name/ptr name)))
 
-(cl-defun gss-init-sec (name &key flags (time-req 0) context input-token)
+(cl-defun gss-init-sec-context (name &key flags (time-req 0) context input-token)
   (check-type name (or string gss-name))
   (check-type flags list)
   (check-type time-req integer)
@@ -56,7 +56,7 @@
             (gss--make-string-from-result content)
             flags))))
 
-(cl-defun gss-accept-sec (content &key context)
+(cl-defun gss-accept-sec-context (content &key context)
   (check-type content string)
   (check-type context (or null gss-context))
   (destructuring-bind (continue-needed context name output-token flags time-rec delegated-cred-handle)
