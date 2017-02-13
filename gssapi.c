@@ -171,11 +171,8 @@ static emacs_value Fgssapi_internal_import_name(emacs_env *env, ptrdiff_t nargs,
 {
     // Deal with unused variable warning
     (void)data;
+    (void)nargs;
 
-    if(nargs != 2) {
-        throw_error(env, "Wrong number of arguments");
-        return env->intern(env, "nil");
-    }
     emacs_value name = args[0];
     emacs_value type = args[1];
 
@@ -223,11 +220,8 @@ static emacs_value Fgssapi_internal_import_name(emacs_env *env, ptrdiff_t nargs,
 static emacs_value Fgssapi_internal_name_to_string(emacs_env *env, ptrdiff_t nargs, emacs_value *args, void *data)
 {
     (void)data;
+    (void)nargs;
 
-    if(nargs != 1) {
-        throw_error(env, "Wrong number of arguments");
-        return env->intern(env, "nil");
-    }
     emacs_value name = args[0];
 
     gss_buffer_desc buffer;
@@ -366,11 +360,8 @@ static void free_input_token(gss_buffer_desc *token)
 static emacs_value Fgssapi_internal_init_sec_context(emacs_env *env, ptrdiff_t nargs, emacs_value *args, void *data)
 {
     (void)data;
+    (void)nargs;
 
-    if(nargs != 5) {
-        throw_error(env, "Wrong number of arguments");
-        return env->intern(env, "nil");
-    }
     emacs_value target = args[0];
     emacs_value flags = args[1];
     emacs_value context = args[2];
@@ -411,11 +402,8 @@ static emacs_value Fgssapi_internal_init_sec_context(emacs_env *env, ptrdiff_t n
 static emacs_value Fgssapi_internal_accept_sec_context(emacs_env *env, ptrdiff_t nargs, emacs_value *args, void *data)
 {
     (void)data;
+    (void)nargs;
 
-    if(nargs != 2) {
-        throw_error(env, "Wrong number of arguments");
-        return env->intern(env, "nil");
-    }
     emacs_value content = args[0];
     emacs_value context = args[1];
 
@@ -456,11 +444,8 @@ static emacs_value Fgssapi_internal_accept_sec_context(emacs_env *env, ptrdiff_t
 static emacs_value Fregister_acceptor_identity(emacs_env *env, ptrdiff_t nargs, emacs_value *args, void *data)
 {
     (void)data;
+    (void)nargs;
 
-    if(nargs != 1) {
-        throw_error(env, "Wrong number of arguments");
-        return env->intern(env, "nil");
-    }
     emacs_value filename = args[0];
 
     ptrdiff_t size;
@@ -483,11 +468,8 @@ static emacs_value Fregister_acceptor_identity(emacs_env *env, ptrdiff_t nargs, 
 static emacs_value Fwrap(emacs_env *env, ptrdiff_t nargs, emacs_value *args, void *data)
 {
     (void)data;
+    (void)nargs;
 
-    if(nargs != 3) {
-        throw_error(env, "Wrong number of arguments");
-        return env->intern(env, "nil");
-    }
     emacs_value context = args[0];
     emacs_value buffer = args[1];
     emacs_value conf = args[2];
@@ -524,11 +506,8 @@ static emacs_value Fwrap(emacs_env *env, ptrdiff_t nargs, emacs_value *args, voi
 static emacs_value Funwrap(emacs_env *env, ptrdiff_t nargs, emacs_value *args, void *data)
 {
     (void)data;
+    (void)nargs;
 
-    if(nargs != 2) {
-        throw_error(env, "Wrong number of arguments");
-        return env->intern(env, "nil");
-    }
     emacs_value context = args[0];
     emacs_value buffer = args[1];
 
