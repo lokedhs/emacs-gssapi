@@ -89,4 +89,4 @@
       (gss--internal-unwrap (gss-context/ptr context) (gss--token-to-vector data))
     (list (gss--make-string-from-result data) conf)))
 
-(provide 'native-gssapi)
+(provide 'gss)
