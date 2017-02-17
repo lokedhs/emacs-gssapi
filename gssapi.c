@@ -9,6 +9,7 @@
 
 int plugin_is_GPL_compatible;
 
+#if 0
 static void message(emacs_env *env, char *fmt, ...)
 {
     int size = 0;
@@ -41,6 +42,7 @@ static void message(emacs_env *env, char *fmt, ...)
 
     free(p);
 }
+#endif
 
 static void bind_function(emacs_env *env, char *name, emacs_value Sfun)
 {
@@ -415,7 +417,6 @@ static emacs_value Fgssapi_internal_init_sec_context(emacs_env *env, ptrdiff_t n
     OM_uint32 ret_flags;
     OM_uint32 time_rec;
 
-    message(env, "gss_init_sec_context. context=%p", context_handle);
     OM_uint32 minor;
     OM_uint32 result = gss_init_sec_context(&minor, NULL, &context_handle, env->get_user_ptr(env, target),
                                             GSS_C_NO_OID, make_flags(env, flags),
@@ -423,33 +424,27 @@ static emacs_value Fgssapi_internal_init_sec_context(emacs_env *env, ptrdiff_t n
                                             &input_token, &actual_mech_type, &output_token, &ret_flags, &time_rec);
     free_input_token(&input_token);
     if(GSS_ERROR(result)) {
-        message(env, "Call to INIT failed");
         if(env->is_not_nil(env, context)) {
             ContextWrapper *context_wrapper = env->get_user_ptr(env, context);
-            message(env, "released = %d\n", context_wrapper->is_released);
             context_wrapper->is_released = 1;
         }
         check_error(env, result, minor);
         return env->intern(env, "nil");
     }
-    message(env, "call to INIT successful, context=%p", context_handle);
 
     emacs_value Qnil = env->intern(env, "nil");
     emacs_value Qt = env->intern(env, "t");
     emacs_value context_ret;
     if(context_handle == NULL) {
         context_ret = Qnil;
-        message(env, "returning nil context");
     }
     else if(env->is_not_nil(env, context)) {
         context_ret = context;
-        message(env, "Returning original context");
     }
     else {
         ContextWrapper *context_wrapper = malloc(sizeof(ContextWrapper));
         context_wrapper->context = context_handle;
         context_wrapper->is_released = 0;
-        message(env, "returning newly created context wrapper = %p", context_wrapper);
         context_ret = env->make_user_ptr(env, free_context, context_wrapper);
     }
 
